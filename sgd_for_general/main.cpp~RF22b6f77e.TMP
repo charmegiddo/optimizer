@@ -1,0 +1,233 @@
+#include <stdio.h>
+#include <iostream>
+#include <vector>
+#include <functional>
+#include <stdlib.h> 
+
+#define lr_t 1e-2
+#define h_t 1e-5
+using T = float;
+using namespace std;
+
+class C_B_Value {
+public:
+	T *values;
+	int element_number;
+
+
+	virtual void disp() {
+		for (int i = 0; i < element_number; i++) {
+			printf("[%d] %f, ", i, values[i]);
+		}
+		cout << endl;
+	}
+};
+
+
+class C_Unknown_Values:public C_B_Value {
+public:
+	T *gradients;
+	T *gradient_accumulations_1;
+	T *gradient_accumulations_2;
+	
+	C_Unknown_Values(int _num) {
+		this->element_number = _num;
+		this->values = new T(_num);
+		this->gradients = new T(_num);
+		this->gradient_accumulations_1 = new T(_num);
+		this->gradient_accumulations_2 = new T(_num);
+		set_initialize_all_variable(0);
+	}
+
+	// Initializer
+	void set_initialize_all_variable(T _val) {
+		for (int i = 0; i < element_number; i++) {
+			this->values[i] = _val;
+			this->gradients[i] = _val;
+			this->gradient_accumulations_1[i] = _val;
+			this->gradient_accumulations_2[i] = _val;
+		}
+	}
+	//
+	void set_initialize_gradients(T _val) {
+		for (int i = 0; i < element_number; i++) {
+			this->gradients[i] = _val;
+		}
+	}
+
+
+};
+
+
+class C_Dataset :public C_B_Value{
+public:
+	T output;
+	C_Dataset(int _num) {
+		this->element_number = _num;
+		this->values = new T[_num];
+		this->output = 0;
+	}
+	C_Dataset() {
+	}
+
+	void set_assets(T *_data, T _output) {
+		for (int i = 0; i < this->element_number; i++) this->values[i] = _data[i];
+		this->output = _output;
+		return;
+	}
+
+	virtual void disp() {
+		for (int i = 0; i < element_number; i++) {
+			printf("[%d] %f, ", i, values[i]);
+		}
+		printf("[out] %f", output);
+		cout << endl;
+	}
+
+
+};
+
+// least_square
+T least_square(T _ans, T _est) {
+	return pow((_ans - _est), 2) * 0.5;
+}
+
+T generate_training_data(T _a, T _b) {
+	return (_a * 10 * _a * 3) + (_b * 3 * _b * 3);
+}
+
+T func_a(C_Dataset _input, C_Unknown_Values _ukv) {
+	T _a = _input.values[0];
+	T _b = _input.values[1];
+	T _c = _ukv.values[0];
+	T _d = _ukv.values[1];
+	return (_a * _a * _c * _d) + (_b * _b * _d * _d);
+}
+class C_Optimizer {
+public:
+
+	function<T(C_Dataset, C_Unknown_Values)> fnc;
+	C_Unknown_Values *ukv;
+
+	C_Optimizer() {
+	}
+
+	C_Optimizer(std::function<T(C_Dataset, C_Unknown_Values)> _fnc, C_Unknown_Values *_ukv) {
+		fnc = _fnc;
+		ukv = _ukv;
+	}
+
+	T calculate_gradient_by_numerical_differential(C_Dataset *_data) {
+		T loss = 0;
+		
+		for (int i = 0; i < _data->element_number; i++) {
+			 loss += fnc(_data[i], *ukv);
+			for (int j = 0; j < ukv->element_number; j++) {
+				ukv->values[j] += h_t;
+				T deriv_a = fnc(_data[i], *ukv);
+				ukv->values[j] -= (h_t * 2);
+				T deriv_b = fnc(_data[i], *ukv);
+				ukv->values[j] += h_t;
+
+				T grads = (deriv_a - deriv_b) / (2 * h_t);
+				ukv->gradients[j] += grads;
+			}
+		}
+
+		return loss;
+	}
+
+	void numerical_differential(std::function<T(C_Dataset, C_Unknown_Values)> _fnc, C_Dataset _data, C_Unknown_Values *_ukv) {
+		T loss = _fnc(_data, *_ukv);
+
+		//cout << "loss: " << least_square(dataset[i].output, func_a(dataset[i], *ukv)) << endl;
+		for (int j = 0; j < _ukv->element_number; j++) {
+			_ukv->values[j] += h_t;
+			T deriv_a = _fnc(_data, *_ukv);
+			_ukv->values[j] -= (h_t * 2);
+			T deriv_b = _fnc(_data, *_ukv);
+			_ukv->values[j] += h_t;
+
+			T grads = (deriv_a - deriv_b) / (2 * h_t);
+			_ukv->gradients[j] += grads;
+		}
+	}
+
+	void weight_variable_update(C_Unknown_Values *_ukv) {
+		for (int j = 0; j < _ukv->element_number; j++) {
+			_ukv->values[j] -= _ukv->gradients[j] * lr_t;
+		}
+			return;
+	}
+};
+
+
+T func_c(C_Dataset _data, C_Unknown_Values _ukv) {
+
+	// Estimate
+	T _a = _data.values[0];
+	T _b = _data.values[1];
+	T _c = _ukv.values[0];
+	T _d = _ukv.values[1];
+	T _est = (_a * _a * _c * _d) + (_b * _b * _d * _d);
+
+	// Loss
+	T loss = least_square(_data.output, _est);
+
+	return loss;
+}
+
+int main() {
+	//
+	C_Unknown_Values *ukv = new C_Unknown_Values(2);	
+	C_Optimizer *opt = new C_Optimizer();
+	C_Optimizer *optimizer = new C_Optimizer(func_c, *ukv);
+
+	// Dataset‚Ì—pˆÓ
+	vector<C_Dataset> dataset; 
+	T tmp[2];
+	for(int i = 0; i < 5000; i++){
+		dataset.push_back(2);
+		for (int j = 0; j < dataset.back().element_number; j++) {
+			tmp[j] = (float)(rand() % 100) / 100;
+		}
+		T out_tmp = generate_training_data(tmp[0], tmp[1]);
+		dataset.back().set_assets(tmp, out_tmp);
+	}
+
+	for (int i = 0; i < dataset.size(); i++) {
+		dataset[i].disp();
+	}
+
+	ukv->values[0] = 5;
+	ukv->values[1] = 5;
+
+	optimizer->calculate_gradient_by_numerical_differential(&dataset.front());
+	optimizer->weight_variable_update(ukv);
+
+	for (int i = 0; i < 3000; i++) {
+		// gradient
+		ukv->set_initialize_gradients(0);
+		opt->numerical_differential(func_c, dataset[i], ukv);
+		opt->weight_variable_update(ukv);
+		/*
+		cout << "loss: " << least_square(dataset[i].output, func_a(dataset[i], *ukv)) << endl;
+		ukv->values[j] += h_t;
+		T deriv_a = least_square(dataset[i].output, func_a(dataset[i], *ukv));
+		ukv->values[j] -= (h_t * 2);
+		T deriv_b = least_square(dataset[i].output, func_a(dataset[i], *ukv));
+		ukv->values[j] += h_t;
+
+		// gradient
+		T ans = (deriv_a - deriv_b) / (2 * h_t);
+		ukv->gradients[j] = ans;*/
+
+		ukv->disp();
+
+		getchar();
+	}
+
+
+
+
+}
